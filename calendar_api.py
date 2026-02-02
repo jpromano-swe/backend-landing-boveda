@@ -18,7 +18,8 @@ router = APIRouter()
 
 SLOT_HOURS = [(18, 19), (19, 20), (20, 21)]
 WEEKDAYS = {0, 1, 2, 3, 4}
-DEFAULT_DAYS = 10
+DEFAULT_DAYS = 14
+WINDOW_WEEKS = 2
 
 
 def parse_rfc3339(value: str) -> datetime:
@@ -42,6 +43,14 @@ def week_bounds(now: datetime, tz: ZoneInfo) -> tuple[datetime, datetime]:
     week_start = datetime.combine(week_start_date, time.min, tz)
     week_end = week_start + timedelta(days=7)
     return week_start, week_end
+
+
+def window_bounds(now: datetime, tz: ZoneInfo, weeks: int = WINDOW_WEEKS) -> tuple[datetime, datetime]:
+    local_now = now.astimezone(tz)
+    window_start_date = local_now.date() - timedelta(days=local_now.weekday())
+    window_start = datetime.combine(window_start_date, time.min, tz)
+    window_end = window_start + timedelta(days=7 * weeks)
+    return window_start, window_end
 
 
 def ensure_tz(dt: datetime, tz: ZoneInfo) -> datetime:
@@ -117,13 +126,20 @@ def calendar_availability(days: int = Query(DEFAULT_DAYS, ge=1, le=31)):
     tz = get_timezone()
     now = datetime.now(tz)
     week_start, week_end = week_bounds(now, tz)
+    window_start, window_end = window_bounds(now, tz)
 
     range_end = now + timedelta(days=days)
-    if range_end > week_end:
-        range_end = week_end
+    if range_end > window_end:
+        range_end = window_end
 
     if range_end <= now:
-        return {"tz": tz.key, "range": {"start": now.isoformat(), "end": range_end.isoformat()}, "slots": []}
+        return {
+            "tz": tz.key,
+            "range": {"start": now.isoformat(), "end": range_end.isoformat()},
+            "week": {"start": week_start.isoformat(), "end": week_end.isoformat()},
+            "window": {"start": window_start.isoformat(), "end": window_end.isoformat()},
+            "slots": [],
+        }
 
     try:
         busy = fetch_busy(now, range_end)
@@ -143,7 +159,7 @@ def calendar_availability(days: int = Query(DEFAULT_DAYS, ge=1, le=31)):
                 end_dt = datetime.combine(cursor, time(end_hour, 0), tz)
                 if start_dt < now:
                     continue
-                if start_dt < week_start or start_dt >= week_end:
+                if start_dt < window_start or start_dt >= window_end:
                     continue
                 if overlaps(start_dt, end_dt, busy):
                     continue
@@ -160,6 +176,7 @@ def calendar_availability(days: int = Query(DEFAULT_DAYS, ge=1, le=31)):
         "tz": tz.key,
         "range": {"start": now.isoformat(), "end": range_end.isoformat()},
         "week": {"start": week_start.isoformat(), "end": week_end.isoformat()},
+        "window": {"start": window_start.isoformat(), "end": window_end.isoformat()},
         "slots": slots,
     }
 
@@ -169,6 +186,7 @@ def calendar_book(req: BookingRequest):
     tz = get_timezone()
     now = datetime.now(tz)
     week_start, week_end = week_bounds(now, tz)
+    window_start, window_end = window_bounds(now, tz)
 
     start = ensure_tz(req.start, tz)
     end = ensure_tz(req.end, tz)
@@ -183,8 +201,8 @@ def calendar_book(req: BookingRequest):
         raise HTTPException(status_code=400, detail="slot must start at 18:00, 19:00, or 20:00")
     if start < now:
         raise HTTPException(status_code=400, detail="slot must be in the future")
-    if start < week_start or start >= week_end:
-        raise HTTPException(status_code=400, detail="slot must be within the current week")
+    if start < window_start or start >= window_end:
+        raise HTTPException(status_code=400, detail="slot must be within the current two-week window")
 
     try:
         busy = fetch_busy(start, end)
