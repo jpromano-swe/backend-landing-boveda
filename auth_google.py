@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import os
 from html import escape as html_escape
+from urllib.parse import parse_qs, urlparse
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -43,6 +45,49 @@ def _render_error(title: str, detail: str, status_code: int = 500) -> HTMLRespon
     <p>{safe_detail}</p>
     """
     return HTMLResponse(html, status_code=status_code)
+
+
+@router.get("/auth/google/debug")
+def google_debug():
+    raw_redirect = os.getenv("GOOGLE_REDIRECT_URI")
+    normalized_redirect = get_env("GOOGLE_REDIRECT_URI")
+    normalized_client_id = get_env("GOOGLE_CLIENT_ID")
+
+    try:
+        flow = build_flow()
+        authorization_url, _state = flow.authorization_url(
+            access_type="offline",
+            prompt="consent",
+            include_granted_scopes="true",
+        )
+        parsed = urlparse(authorization_url)
+        query = parse_qs(parsed.query)
+        auth_redirect = query.get("redirect_uri", [None])[0]
+        auth_client_id = query.get("client_id", [None])[0]
+    except Exception as exc:  # pragma: no cover - runtime integration path
+        logger.exception("Google OAuth debug failed")
+        return {
+            "ok": False,
+            "error": str(exc),
+            "env": {
+                "redirect_uri_raw_repr": repr(raw_redirect),
+                "redirect_uri_normalized": normalized_redirect,
+                "client_id_tail": normalized_client_id[-12:] if normalized_client_id else None,
+            },
+        }
+
+    return {
+        "ok": True,
+        "env": {
+            "redirect_uri_raw_repr": repr(raw_redirect),
+            "redirect_uri_normalized": normalized_redirect,
+            "client_id_tail": normalized_client_id[-12:] if normalized_client_id else None,
+        },
+        "oauth_url_params": {
+            "redirect_uri": auth_redirect,
+            "client_id_tail": auth_client_id[-12:] if auth_client_id else None,
+        },
+    }
 
 
 @router.get("/auth/google/start")
