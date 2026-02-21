@@ -109,7 +109,11 @@ def google_start():
 def google_callback(request: Request):
     try:
         flow = build_flow()
-        flow.fetch_token(authorization_response=str(request.url))
+        authorization_response = str(request.url)
+        forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+        if forwarded_proto == "https" and request.url.scheme != "https":
+            authorization_response = str(request.url.replace(scheme="https"))
+        flow.fetch_token(authorization_response=authorization_response)
     except Exception as exc:  # pragma: no cover - runtime integration path
         logger.exception("Google OAuth callback failed")
         hint = ""
