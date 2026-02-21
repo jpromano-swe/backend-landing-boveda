@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+from html import escape as html_escape
+
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from google_auth_oauthlib.flow import Flow
@@ -7,6 +10,7 @@ from google_auth_oauthlib.flow import Flow
 from config import get_env
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 SCOPES = [
     "https://www.googleapis.com/auth/calendar.events",
@@ -31,21 +35,48 @@ def build_flow() -> Flow:
     )
 
 
+def _render_error(title: str, detail: str, status_code: int = 500) -> HTMLResponse:
+    safe_title = html_escape(title)
+    safe_detail = html_escape(detail)
+    html = f"""
+    <h2>{safe_title}</h2>
+    <p>{safe_detail}</p>
+    """
+    return HTMLResponse(html, status_code=status_code)
+
+
 @router.get("/auth/google/start")
 def google_start():
-    flow = build_flow()
-    authorization_url, _state = flow.authorization_url(
-        access_type="offline",
-        prompt="consent",
-        include_granted_scopes="true",
-    )
-    return RedirectResponse(authorization_url)
+    try:
+        flow = build_flow()
+        authorization_url, _state = flow.authorization_url(
+            access_type="offline",
+            prompt="consent",
+            include_granted_scopes="true",
+        )
+        return RedirectResponse(authorization_url)
+    except Exception as exc:  # pragma: no cover - runtime integration path
+        logger.exception("Google OAuth start failed")
+        return _render_error("Google OAuth start failed", str(exc), status_code=500)
 
 
 @router.get("/auth/google/callback")
 def google_callback(request: Request):
-    flow = build_flow()
-    flow.fetch_token(authorization_response=str(request.url))
+    try:
+        flow = build_flow()
+        flow.fetch_token(authorization_response=str(request.url))
+    except Exception as exc:  # pragma: no cover - runtime integration path
+        logger.exception("Google OAuth callback failed")
+        hint = ""
+        message = str(exc)
+        if "invalid_grant" in message:
+            hint = (
+                " Invalid grant usually means code expired, token revoked, or OAuth client "
+                "credentials/redirect URI do not match."
+            )
+        if "redirect_uri_mismatch" in message:
+            hint = " Redirect URI mismatch: verify GOOGLE_REDIRECT_URI and Google OAuth settings."
+        return _render_error("Google OAuth callback failed", f"{message}{hint}", status_code=500)
 
     creds = flow.credentials
     refresh_token = creds.refresh_token
