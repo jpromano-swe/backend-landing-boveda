@@ -18,8 +18,8 @@ router = APIRouter()
 
 SLOT_HOURS = [(18, 19), (19, 20), (20, 21)]
 WEEKDAYS = {0, 1, 2, 3, 4}
-DEFAULT_DAYS = 14
-WINDOW_WEEKS = 2
+DEFAULT_DAYS = 15
+WINDOW_DAYS = 15
 
 
 def parse_rfc3339(value: str) -> datetime:
@@ -45,11 +45,10 @@ def week_bounds(now: datetime, tz: ZoneInfo) -> tuple[datetime, datetime]:
     return week_start, week_end
 
 
-def window_bounds(now: datetime, tz: ZoneInfo, weeks: int = WINDOW_WEEKS) -> tuple[datetime, datetime]:
+def window_bounds(now: datetime, tz: ZoneInfo, days: int = WINDOW_DAYS) -> tuple[datetime, datetime]:
     local_now = now.astimezone(tz)
-    window_start_date = local_now.date() - timedelta(days=local_now.weekday())
-    window_start = datetime.combine(window_start_date, time.min, tz)
-    window_end = window_start + timedelta(days=7 * weeks)
+    window_start = local_now
+    window_end = window_start + timedelta(days=days)
     return window_start, window_end
 
 
@@ -202,7 +201,7 @@ def calendar_book(req: BookingRequest):
     if start < now:
         raise HTTPException(status_code=400, detail="slot must be in the future")
     if start < window_start or start >= window_end:
-        raise HTTPException(status_code=400, detail="slot must be within the current two-week window")
+        raise HTTPException(status_code=400, detail="slot must be within the current 15-day window")
 
     try:
         busy = fetch_busy(start, end)
