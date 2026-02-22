@@ -5,14 +5,13 @@ from datetime import datetime, timezone
 from html import escape as html_escape
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode, quote
+from urllib.parse import quote, urlencode, urlparse
 
 import requests
 
 from config import get_env
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "email_template.html"
-LOGO_PATH = Path(__file__).resolve().parent / "logo-placeholder.png"
 
 
 def _escape_ics(text: str) -> str:
@@ -47,13 +46,19 @@ def _load_template() -> str | None:
         return None
 
 
-def _load_logo_data_uri() -> str | None:
-    try:
-        logo_bytes = LOGO_PATH.read_bytes()
-    except OSError:
+def _get_logo_url() -> str | None:
+    explicit_logo_url = get_env("EMAIL_LOGO_URL")
+    if explicit_logo_url:
+        return explicit_logo_url
+
+    redirect_uri = get_env("GOOGLE_REDIRECT_URI")
+    if not redirect_uri:
         return None
-    encoded = base64.b64encode(logo_bytes).decode("ascii")
-    return f"data:image/png;base64,{encoded}"
+
+    parsed = urlparse(redirect_uri)
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}/assets/logo-placeholder.png"
 
 
 def _render_template(template: str, replacements: dict[str, str]) -> str:
@@ -153,9 +158,12 @@ def build_booking_email(
     template = _load_template()
     if template:
         safe_name = f" {name}" if name else ""
-        logo_src = _load_logo_data_uri()
-        if logo_src:
-            logo_html = f'<img src="{logo_src}" alt="BOVEDA" class="logo-image">'
+        logo_url = _get_logo_url()
+        if logo_url:
+            logo_html = (
+                f'<img src="{html_escape(logo_url)}" alt="BOVEDA" class="logo-image" '
+                'style="display:block;width:190px;max-width:100%;height:auto;border:0;">'
+            )
         else:
             logo_html = '<h1 class="logo">BOVEDA</h1>'
         replacements = {
