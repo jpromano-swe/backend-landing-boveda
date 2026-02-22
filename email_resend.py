@@ -12,6 +12,7 @@ import requests
 from config import get_env
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "email_template.html"
+LOGO_PATH = Path(__file__).resolve().parent / "logo-placeholder.png"
 
 
 def _escape_ics(text: str) -> str:
@@ -44,6 +45,15 @@ def _load_template() -> str | None:
         return TEMPLATE_PATH.read_text(encoding="utf-8")
     except OSError:
         return None
+
+
+def _load_logo_data_uri() -> str | None:
+    try:
+        logo_bytes = LOGO_PATH.read_bytes()
+    except OSError:
+        return None
+    encoded = base64.b64encode(logo_bytes).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
 
 
 def _render_template(template: str, replacements: dict[str, str]) -> str:
@@ -143,6 +153,11 @@ def build_booking_email(
     template = _load_template()
     if template:
         safe_name = f" {name}" if name else ""
+        logo_src = _load_logo_data_uri()
+        if logo_src:
+            logo_html = f'<img src="{logo_src}" alt="BOVEDA" class="logo-image">'
+        else:
+            logo_html = '<h1 class="logo">BOVEDA</h1>'
         replacements = {
             "%%EVENT_LINK%%": google_link,
             "%%EVENT_DATE%%": html_escape(_format_date(start)),
@@ -151,6 +166,7 @@ def build_booking_email(
             "%%MEET_LINK_URL%%": meet_text,
             "%%EVENT_TITLE%%": html_escape(summary),
             "%%NAME%%": html_escape(safe_name),
+            "%%LOGO_HTML%%": logo_html,
         }
         html = _render_template(template, replacements)
     else:

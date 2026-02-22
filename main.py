@@ -7,7 +7,7 @@ import auth_google
 import calendar_api
 from config import get_env
 
-app = FastAPI()
+app = FastAPI(title="Agenda tu turno para las reservas")
 
 frontend_origin = get_env("FRONTEND_ORIGIN")
 if frontend_origin:
